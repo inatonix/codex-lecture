@@ -26,6 +26,7 @@ class UserResponse(BaseModel):
     age: Optional[int] = None
     created_at: datetime
     updated_at: datetime
+    deleted_at: Optional[datetime] = None
 
 
 # メモリ内データストア（簡単な実装）
@@ -42,6 +43,8 @@ def _assert_unique_constraints(
     """指定されたユニーク制約を検証する。"""
     for uid, user in users_db.items():
         if uid == exclude_id:
+            continue
+        if user.deleted_at is not None:
             continue
         if email and user.email == email:
             raise HTTPException(
@@ -78,6 +81,7 @@ async def create_user(user: UserCreate) -> UserResponse:
         age=user.age,
         created_at=now,
         updated_at=now,
+        deleted_at=None,
     )
     
     users_db[next_id] = new_user
@@ -94,7 +98,7 @@ async def get_users() -> List[UserResponse]:
     Returns:
         登録済みユーザーの一覧。
     """
-    return list(users_db.values())
+    return [user for user in users_db.values() if user.deleted_at is None]
 
 
 # READ: 特定のユーザーを取得
@@ -108,7 +112,7 @@ async def get_user(user_id: int) -> UserResponse:
     Returns:
         該当ユーザーの状態。
     """
-    if user_id not in users_db:
+    if user_id not in users_db or users_db[user_id].deleted_at is not None:
         raise HTTPException(
             status_code=404,
             detail=f"User with id {user_id} not found"
@@ -129,7 +133,7 @@ async def update_user(user_id: int, user_update: UserUpdate) -> UserResponse:
     Returns:
         更新後のユーザー状態。
     """
-    if user_id not in users_db:
+    if user_id not in users_db or users_db[user_id].deleted_at is not None:
         raise HTTPException(
             status_code=404,
             detail=f"User with id {user_id} not found"
@@ -167,13 +171,16 @@ async def delete_user(user_id: int) -> None:
     Returns:
         None: 削除が成功したことを表します。
     """
-    if user_id not in users_db:
+    if user_id not in users_db or users_db[user_id].deleted_at is not None:
         raise HTTPException(
             status_code=404,
             detail=f"User with id {user_id} not found"
         )
-    
-    del users_db[user_id]
+
+    record = users_db[user_id]
+    now = datetime.now()
+    deleted_user = record.model_copy(update={"deleted_at": now, "updated_at": now})
+    users_db[user_id] = deleted_user
     return None
 
 
