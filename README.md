@@ -24,3 +24,19 @@ npm run dev
 ブラウザで `http://localhost:8000` を開くと、FastAPI と連携したユーザー管理 UI が表示されます。
 
 必要に応じて `frontend/.env.local` に `NEXT_PUBLIC_API_BASE_URL` を設定すると接続先を変更できます (デフォルトは `http://localhost:8001`)。
+
+## E2E テスト (Playwright)
+
+ブラウザ自動テストで UI の CRUD フローを検証できます。初回のみブラウザバイナリを取得してください。
+
+```bash
+cd frontend
+npm install
+npx playwright install
+```
+
+バックエンド (ポート 8001) とフロントエンド (ポート 8000) を起動した状態で、別ターミナルから次を実行します。
+
+```bash
+npm run test:e2e
+```

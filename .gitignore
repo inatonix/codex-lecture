@@ -6,3 +6,5 @@ frontend/.env.local
 frontend/.eslintcache
 frontend/.turbo/
 frontend/out/
+frontend/playwright-report/
+frontend/test-results/
