@@ -28,13 +28,31 @@ class UserResponse(BaseModel):
     updated_at: datetime
 
 
-class UserRecord(UserResponse):
-    deleted: bool = False
-
-
 # メモリ内データストア（簡単な実装）
-users_db: dict[int, UserRecord] = {}
+users_db: dict[int, UserResponse] = {}
 next_id = 1
+
+
+def _assert_unique_constraints(
+    *,
+    name: Optional[str] = None,
+    email: Optional[str] = None,
+    exclude_id: Optional[int] = None,
+) -> None:
+    """指定されたユニーク制約を検証する。"""
+    for uid, user in users_db.items():
+        if uid == exclude_id:
+            continue
+        if email and user.email == email:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Email {email} already exists"
+            )
+        if name and user.name == name:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Name {name} already exists"
+            )
 
 
 # CREATE: ユーザーを作成
@@ -50,29 +68,22 @@ async def create_user(user: UserCreate) -> UserResponse:
     """
     global next_id
     
-    # メールアドレスの重複チェック
-    for existing_user in users_db.values():
-        if not existing_user.deleted and existing_user.email == user.email:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Email {user.email} already exists"
-            )
+    _assert_unique_constraints(name=user.name, email=user.email)
     
     now = datetime.now()
-    new_user = UserRecord(
+    new_user = UserResponse(
         id=next_id,
         name=user.name,
         email=user.email,
         age=user.age,
         created_at=now,
         updated_at=now,
-        deleted=False
     )
     
     users_db[next_id] = new_user
     next_id += 1
     
-    return UserResponse.model_validate(new_user)
+    return new_user
 
 
 # READ: 全ユーザーを取得
@@ -83,11 +94,7 @@ async def get_users() -> List[UserResponse]:
     Returns:
         登録済みユーザーの一覧。
     """
-    return [
-        UserResponse.model_validate(user)
-        for user in users_db.values()
-        if not user.deleted
-    ]
+    return list(users_db.values())
 
 
 # READ: 特定のユーザーを取得
@@ -101,14 +108,13 @@ async def get_user(user_id: int) -> UserResponse:
     Returns:
         該当ユーザーの状態。
     """
-    record = users_db.get(user_id)
-    if record is None or record.deleted:
+    if user_id not in users_db:
         raise HTTPException(
             status_code=404,
             detail=f"User with id {user_id} not found"
         )
     
-    return UserResponse.model_validate(record)
+    return users_db[user_id]
 
 
 # UPDATE: ユーザーを更新
@@ -123,25 +129,22 @@ async def update_user(user_id: int, user_update: UserUpdate) -> UserResponse:
     Returns:
         更新後のユーザー状態。
     """
-    record = users_db.get(user_id)
-    if record is None or record.deleted:
+    if user_id not in users_db:
         raise HTTPException(
             status_code=404,
             detail=f"User with id {user_id} not found"
         )
     
+    record = users_db[user_id]
+    
     # メールアドレスの重複チェック（自分以外）
-    if user_update.email:
-        for uid, u in users_db.items():
-            if (
-                uid != user_id
-                and not u.deleted
-                and u.email == user_update.email
-            ):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Email {user_update.email} already exists"
-                )
+    target_email = user_update.email or record.email
+    target_name = user_update.name or record.name
+    _assert_unique_constraints(
+        name=target_name,
+        email=target_email,
+        exclude_id=user_id,
+    )
     
     # 更新フィールドを適用
     update_data = user_update.model_dump(exclude_unset=True)
@@ -150,13 +153,13 @@ async def update_user(user_id: int, user_update: UserUpdate) -> UserResponse:
     
     users_db[user_id] = updated_user
     
-    return UserResponse.model_validate(updated_user)
+    return updated_user
 
 
 # DELETE: ユーザーを削除
 @app.delete("/users/{user_id}", status_code=204)
 async def delete_user(user_id: int) -> None:
-    """IDで指定されたユーザーを論理削除します
+    """IDで指定されたユーザーを削除します
     
     Args:
         user_id: 削除したいユーザーのID。
@@ -164,16 +167,13 @@ async def delete_user(user_id: int) -> None:
     Returns:
         None: 削除が成功したことを表します。
     """
-    record = users_db.get(user_id)
-    if record is None or record.deleted:
+    if user_id not in users_db:
         raise HTTPException(
             status_code=404,
             detail=f"User with id {user_id} not found"
         )
     
-    record.deleted = True
-    record.updated_at = datetime.now()
-    users_db[user_id] = record
+    del users_db[user_id]
     return None
 
 
